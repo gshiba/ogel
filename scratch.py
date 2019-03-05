@@ -17,8 +17,11 @@ import os
 from datetime import datetime
 
 import pandas as pd
+import numpy as np
 
 from functools import lru_cache
+
+import base64
 
 def pilimage2bytes(pil_image):
     with BytesIO() as f:
@@ -55,20 +58,28 @@ lst = parse_via_json('/Users/gosuke/Downloads/via_project_27Feb2019_22h13m(1).js
 DEFAULT_DATA_DIRECTORY = Path('~/repos/lego/data').expanduser()
 
 class LabelDatabase:
-    csv_cols = ['file_name', 'file_size', 'x', 'y', 'label']
+    idx_cols = ['file_name', 'file_size', 'x', 'y']
+    val_cols = ['label']
+    all_cols = idx_cols + val_cols
+    
     def __init__(self, data_directory=DEFAULT_DATA_DIRECTORY):
         data_directory = Path(data_directory)
         try:
             df = pd.read_csv(data_directory/'labels.latest.csv')
-            assert set(df.columns) == set(LabelDatabase.csv_cols), df.columns
+            assert set(df.columns) == set(LabelDatabase.all_cols), df.columns
+            df = df.set_index(LabelDatabase.idx_cols)
         except FileNotFoundError:
-            df = pd.DataFrame([], columns=LabelDatabase.csv_cols)
+            df = pd.DataFrame([])
         self.df = df
         
     def import_from_vii(self, path):
-        cols = LabelDatabase.csv_cols
-        f = pd.DataFrame(parse_via_json(path), columns=cols[:4])
-        self.df = pd.merge(self.df, f, how='outer', on=cols[:4])
+        f = pd.DataFrame(parse_via_json(path), columns=LabelDatabase.idx_cols)
+        f['label'] = np.nan
+        f = f.set_index(LabelDatabase.idx_cols)
+        if self.df.empty:
+            self.df = f
+        else:
+            self.df = self.df.merge(f, how='outer', on='label', left_index=True, right_index=True)
 
     def save(self):
         ts = datetime.now().strftime('%Y%m%d-%H%M%S-%f')
@@ -77,11 +88,10 @@ class LabelDatabase:
             DEFAULT_DATA_DIRECTORY / f'labels.{ts}.csv',
         ]
         for path in paths:
-            self.df.to_csv(path, index=False)
+            self.df.reset_index().to_csv(path, index=False)
             
-    def update(self, file_name, file_size, x, y, label):
-        row = df.query('file_name==@file_name and file_size==@file_size                         and x=@x and y=@y')
-        self.df.loc[row, 'label'] = label
+    def update(self, key, label):
+        self.df.loc[key, 'label'] = label
         
     def __len__(self):
         return len(self.df)
@@ -94,9 +104,15 @@ class LabelDatabase:
     
     def keys(self, unlabeled_only=True):
         rows = self.df.label.isnull() if unlabeled_only else slice()
-        return self.df.loc[rows][['file_name', 'x', 'y']].to_records(index=False).tolist()
+        return self.df.loc[rows].index.to_list()
 
 db = LabelDatabase()
+len(db)
+
+db.import_from_vii('/Users/gosuke/Downloads/via_project_27Feb2019_22h13m(1).json')
+len(db)
+
+db.save()
 
 class LegoImages:
     def __init__(self):
@@ -107,8 +123,8 @@ class LegoImages:
         if fname in self.images: return
         self.images[fname] = PILImage.open(DEFAULT_DATA_DIRECTORY/'raw'/fname)
         
-    def get_crop(self, fxy, wh=300, resize=200, grey=False):
-        fname, x, y = fxy
+    def get_crop(self, fsxy, wh=300, resize=200, grey=False):
+        fname, fsize, x, y = fsxy
         o = wh // 2
         self._load(fname)
         img = self.images[fname].crop((x-o, y-o, x+o, y+o))  # (left, top, right, bottom)
@@ -128,10 +144,6 @@ class LegoImages:
     
 lego_images = LegoImages()
 
-db = LabelDatabase()
-db.import_from_vii('/Users/gosuke/Downloads/via_project_27Feb2019_22h13m(1).json')
-db.save()
-
 class ImageAndLabel(widgets.VBox):
     def __init__(self):
         self.label = widgets.HTML(
@@ -143,10 +155,16 @@ class ImageAndLabel(widgets.VBox):
         )
         children = (self.label, self.image)
         super().__init__(children)
+        self.clear()
         
     def update(self, img, label):
         self.image.value = img
         self.label.value = str(label)
+
+    def clear(self):
+        s = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mM8cYLhPwAGgQKRee0MwAAAAABJRU5ErkJggg=='
+        self.image.value = base64.b64decode(s)
+        self.label.value = ''
 
 class Landmarks(dict):
     def coordinates(self):
@@ -161,16 +179,13 @@ class ImageLabeler:
         self.n_panels = 5
         self.panels = [ImageAndLabel() for _ in range(self.n_panels)]
         self.label_name = label_name
-        
         self.landmarks = Landmarks({k: None for k in db.keys()})
         
-        self.c = widgets.Label('Click or type on me!')
-        self.c.layout.border = '10px solid green'
-        self.c.layout.height = '100px'
-        tips = widgets.HTML("Some tips")
-        tips.layout.height = '100px'
+        self.c = widgets.HTML('Click or type on me!')
+        button = widgets.Button(description="Save", layout=widgets.Layout(width='auto'))
+        button.on_click(self.save)
         w = widgets.HBox([*self.panels])
-        w = widgets.VBox([w, self.c, tips])
+        w = widgets.VBox([w, self.c, button])
         self.widget = w
         
         self.d = Event(source=self.widget, watched_events=['keydown'])
@@ -179,44 +194,78 @@ class ImageLabeler:
         self.target_label = 'q'
         
         self.render()
+        display(self.widget)
+    
+    def save(self, _):
+        db.save()
         
     def render(self):
-        # clear_output()
         self.update_panels()
-        display(self.widget)
+        self.c.value = '<pre style="line-height: 12px;">' + db.vc().to_string().replace('\n', '\n') + '</pre>'
     
     def update_panels(self):
         for pix in range(self.n_panels):
-            self.update_panel(pix, self.clix + pix - 1)
+            self.update_panel(pix, self.clix + pix)
             
     def update_panel(self, pix, lix):
-        if lix < 0:
-            lix = self.length + lix
+        if not 0 <= lix < len(self.landmarks):
+            self.panels[pix].clear()
+            return
         coord = self.landmarks.coordinates()[lix]
-        label = self.landmarks[coord]
-        grey = self.label_name == label
-        data = lego_images.get_crop(coord, grey=grey)
-        caption = [f'Label is {self.label_name}? y/n' if pix == 1 else '']
-        yn = 'yes' if label else '?' if label is None else 'no'
-        color = 'green' if label else 'grey' if label is None else 'red'
+        is_target_label = self.landmarks[coord]  # T, F or None
+        data = lego_images.get_crop(coord)
+        if is_target_label:
+            yn, color = 'yes', 'green'
+        elif is_target_label is None:
+            yn, color = '?', 'grey'
+        else:
+            yn, color = 'no', 'red'
+        ch = 'hjkl;'[pix]
+            
         style = f'font-size: x-large; color: {color};'
-        caption += [f'<span style="{style}">{yn}</span>']
-        caption += [f'({lix + 1} of {self.length})']
+        style2 = f'font-family: mono; color: grey;'
+        caption = [
+            f'<span style="{style}">{yn}</span>',
+            f'({lix + 1} of {self.length})',
+            f'<span style="{style2}">{ch}</span>',
+        ]
         caption = '<br>'.join(caption)
         caption = f'<div style="text-align: center;">{caption}</span>'
+        
         self.panels[pix].update(data, caption)
-        color = 'black' if pix == 1 else 'white'
         self.panels[pix].layout.border = f'5px solid {color}'
+        
+    def toggle_label(self, clix):
+        if not 0 <= clix < len(self.landmarks):
+            return
+        coord = self.landmarks.coordinates()[clix]
+        current = self.landmarks[coord]
+        new = True if current is None else not current
+        self.landmarks[coord] = new
+        db.update(coord, new)
+        
+    def falsify_if_unset(self, clix):
+        if not 0 <= clix < len(self.landmarks):
+            return
+        coord = self.landmarks.coordinates()[clix]
+        current = self.landmarks[coord]
+        new = False if current is None else current
+        self.landmarks[coord] = new
+        db.update(coord, new)
         
     def handle_event(self, event):
         key = event['key']
-        if key in 'yn':
-            self.landmarks[self.landmarks.coordinates()[self.clix]] = key == 'y'
-            self.clix += 1
+        if key in 'hjkl;':
+            pix = 'hjkl;'.index(key)
+            self.toggle_label(self.clix + pix)
         elif key in ['[', 'ArrowLeft']:
-            self.clix -= 1
+            self.clix -= self.n_panels
         elif key in [']', 'ArrowRight']:
-            self.clix += 1
+            self.clix += self.n_panels
+        elif key in ['Enter']:
+            for i in range(self.n_panels):
+                self.falsify_if_unset(self.clix + i)
+            self.clix += self.n_panels
         elif key == 'ArrowUp':
             self.padding += 5
         elif key == 'ArrowDown':
@@ -225,8 +274,9 @@ class ImageLabeler:
             self.c.value = f"You pressed: {key}"
             return
         self.clix = max(self.clix, 0)
-        self.clix = min(self.length - 1, self.clix)
-        self.update_panels()
+        max_ix = len(self.landmarks) // self.n_panels * self.n_panels
+        self.clix = min(max_ix, self.clix)
+        self.render()
             
 label_name = 'block_1x2'
 il = ImageLabeler(label_name)
