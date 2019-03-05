@@ -12,82 +12,14 @@ from io import BytesIO
 from PIL import Image as PILImage
 from pathlib import Path
 
-int_slider = widgets.IntSlider(
-    value=7,
-    min=-1,
-    max=9,
-    step=1,
-    description='Test:',
-    disabled=False,
-    continuous_update=False,
-    orientation='horizontal',
-    readout=True,
-    readout_format='d'
-)
-int_slider
+import os
 
-int_slider.value = 0
+from datetime import datetime
 
-c = widgets.Label('Click or type on me!')
-c.layout.border = '10px solid green'
-d = Event(source=c, watched_events=['keydown'])
-h = widgets.HTML('Event info')
+import pandas as pd
 
-def handle_event(event):
-    lines = ['{}: {}'.format(k, v) for k, v in event.items()]
-    content = '<br>'.join(lines)
-    h.value = content
-    key = event['key']
-    try:
-        n = int(key)
-    except ValueError:
-        n = -1
-    int_slider.value = n
+from functools import lru_cache
 
-d.on_dom_event(handle_event)                  
-display(c, h)
-
-hhh = widgets.HTML('HI!')
-hhh
-
-hhh.value = 'test'
-
-from time import sleep
-
-i = Image.open(img)
-i.wri
-
-jpath = '/Users/gosuke/Downloads/via_project_27Feb2019_22h13m(1).json'
-with open(jpath) as f:
-    d = json.load(f)
-
-for k in d.keys():
-    print(k)
-    if 'metadata' not in k:
-        continue
-    for k in d[k]:
-        print(k)
-        break
-    break
-
-k
-
-d['_via_img_metadata'][k]
-
-import string
-string.ascii_lowercase
-
-class LegoDB:
-    
-
-ial.update(pilimage2bytes(PILImage.open('test.png')), 'test_img!')
-
-ial.update(pilimage2bytes(PILImage.open('test2.png')), 'test2_img!')
-
-
-# # classes
-# 
-# hello
 def pilimage2bytes(pil_image):
     with BytesIO() as f:
         pil_image.save(f, format='jpeg')
@@ -120,20 +52,8 @@ def parse_via_json(path):
 
 lst = parse_via_json('/Users/gosuke/Downloads/via_project_27Feb2019_22h13m(1).json')
 
-import os
-
-from datetime import datetime
-
-t = datetime.now().strftime('%Y%m%d-%H%M%S-%f')
-t
-
-import pandas as pd
-
 DEFAULT_DATA_DIRECTORY = Path('~/repos/lego/data').expanduser()
 
-DEFAULT_DATA_DIRECTORY
-
-DEFAULT_DATA_DIRECTORY = Path('~/repos/lego/data').expanduser()
 class LabelDatabase:
     csv_cols = ['file_name', 'file_size', 'x', 'y', 'label']
     def __init__(self, data_directory=DEFAULT_DATA_DIRECTORY):
@@ -177,8 +97,6 @@ class LabelDatabase:
         return self.df.loc[rows][['file_name', 'x', 'y']].to_records(index=False).tolist()
 
 db = LabelDatabase()
-
-from functools import lru_cache
 
 class LegoImages:
     def __init__(self):
@@ -229,10 +147,6 @@ class ImageAndLabel(widgets.VBox):
     def update(self, img, label):
         self.image.value = img
         self.label.value = str(label)
-        
-ial = ImageAndLabel()
-ial.layout.width = '200px'
-ial
 
 class Landmarks(dict):
     def coordinates(self):
@@ -267,7 +181,7 @@ class ImageLabeler:
         self.render()
         
     def render(self):
-#         clear_output()
+        # clear_output()
         self.update_panels()
         display(self.widget)
     
@@ -316,19 +230,4 @@ class ImageLabeler:
             
 label_name = 'block_1x2'
 il = ImageLabeler(label_name)
-
-db.keys()
-
-get_ipython().run_line_magic('debug', '')
-
-from collections import Counter
-Counter(il.labels.values())
-
-display(Image('/Users/gosuke/Desktop/blocks.png'))
-
-get_ipython().run_line_magic('pinfo2', 'Event')
-
-hhh.value = 'xya'
-
-hhh
 
